@@ -179,6 +179,7 @@ if __name__ == '__main__':
 
         # init random generator for reproducible outcomes
         random.seed(args["random_seed"])
+        np.random.seed(args["random_seed"])
 
         # population size and hall of fame size
         pop = toolbox.population(n=args["population_size"])

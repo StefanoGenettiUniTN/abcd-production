@@ -172,3 +172,5 @@ rl-checkpoint/
 rl-venv/
 *.jar
 *.alp
+
+log_ge.txt
