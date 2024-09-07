@@ -1,10 +1,14 @@
 from typing import List, Dict, Tuple, Set, Callable
 from alpypeopt import AnyLogicModel
+from datetime import datetime
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 import pandas as pd
 import argparse
 import random
+import time
+import os
+import csv
 import inspyred
 
 from ea.observer import ea_observer # todo mettere anche observer nella classe
@@ -64,15 +68,18 @@ class ACO_ABCD(inspyred.benchmarks.Benchmark):
         return fitness
     
     def terminator(self, population, num_generations, num_evaluations, args):
+        out_directory = args["output_directory"]
         if num_generations == args["max_generations"]:
             data = args["plot_data"]
             df = pd.DataFrame()
             df["generation"] = data[0]
-            df["average_fitness"] = data[1]
-            df["median_fitness"] = data[2]
-            df["best_fitness"] = data[3]
-            df["worst_fitness"] = data[4]
-            df.to_csv("history_aco.csv", sep=",", index=False)
+            df["eval"] = data[1]
+            df["average_fitness"] = data[2]
+            df["median_fitness"] = data[3]
+            df["best_fitness"] = data[4]
+            df["worst_fitness"] = data[5]
+            df.to_csv(f"{out_directory}/history_aco.csv", sep=",", index=False)
+            print(f"Data successfully written to history_aco.csv")
         return num_generations == args["max_generations"]
 
 
@@ -82,6 +89,9 @@ def read_arguments():
     parser.add_argument("--random_seed", type=int, default=42, help="Seed to initialize the pseudo-random number generation.")
     parser.add_argument("--input_csv", type=str, help="File path of the CSV where the optimization output has been stored.")
     
+    parser.add_argument("--out_dir", type=str, help="Output folder.")
+    parser.add_argument('--no_runs', type=int, default=1, help='Number of runs.')
+
     parser.add_argument('--population_size', type=int, default=50, help='EA population size.')
     parser.add_argument('--max_generations', type=int, default=50, help='Generational budget.')
 
@@ -107,8 +117,23 @@ if __name__ == '__main__':
         plt.title('Fitness Trend')
         plt.legend()
         plt.grid(True)
-        plt.show()
+        #plt.show()
+        plt.savefig(f"{args['out_dir']}/aco.pdf")
+        plt.savefig(f"{args['out_dir']}/aco.png")
     else:
+        # create directory for saving results
+        current_datetime = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_folder_path = f"{args['out_dir']}/{current_datetime}"
+        os.makedirs(output_folder_path)
+
+        # execution time csv file
+        csv_execution_time_file_path = f"{output_folder_path}/exec_aco.csv"
+        csv_execution_time_file = open(csv_execution_time_file_path, mode='w', newline='')
+        csv_execution_time_writer = csv.writer(csv_execution_time_file)
+        csv_execution_time_writer.writerow(["run", "time"])
+        csv_execution_time_file.close()
+
+        # init anylogic model
         abcd_model = AnyLogicModel(
             env_config={
                 'run_exported_model': False
@@ -136,31 +161,62 @@ if __name__ == '__main__':
             
             return model_output.getTotalRevenue()
 
-        # init discrete optimization problem
-        abcd_problem = ACO_ABCD(orders=[i for i in range(100)])
+        for r in range(args["no_runs"]):
+            # create directory for saving results of the run
+            output_folder_run_path = output_folder_path+"/"+str(r+1)
+            os.makedirs(output_folder_run_path)
 
-        # run the optimizer
-        ac = inspyred.swarm.ACS(random=rng, components=abcd_problem.components)
-        ac.observer = [ea_observer]
-        ac.terminator = abcd_problem.terminator
-        plot_data = [[], [], [], [], []]                                        # fitness trend to plot
-        plot_data[0] = []                                                       # generation number
-        plot_data[1] = []                                                       # average fitenss
-        plot_data[2] = []                                                       # median fitness
-        plot_data[3] = []                                                       # best fitness
-        plot_data[4] = []                                                       # worst fitness
-        final_pop = ac.evolve(  generator=abcd_problem.constructor,             # the function to be used to generate candidate solutions
-                                evaluator=abcd_problem.evaluator,               # the function to be used to evaluate candidate solutions
-                                pop_size=args["population_size"],               # the number of Individuals in the population 
-                                max_generations=args["max_generations"],        # maximum generations
-                                maximize=abcd_problem.maximize,                 # boolean value stating use of maximization
-                                bounder=abcd_problem.bounder,                   # a function used to bound candidate solutions 
-                                fitness_function=simulation,                    # fitness_function
-                                history_y=[],                                   # keep track of individual fitness
-                                plot_data = plot_data                           # data[0] generation number ; data[1] average fitenss ; data[2] median fitness ; data[3] best fitness ; data[4] worst fitness
-                            )
-        best_ACS = max(ac.archive)
-        print(f"best_ACS={best_ACS}")
+            # write a txt log file with algorithm configuration and other execution details
+            log_file = open(f"{output_folder_run_path}/log.txt", 'w')
+            log_file.write(f"algorithm: ant colony optimization\n")
+            log_file.write(f"current date and time: {datetime.now().strftime('%Y%m%d_%H%M%S')}\n")
+            log_file.write(f"max_generations: {args['max_generations']}\n")
+            log_file.write(f"no_runs: {args['no_runs']}\n")
+            log_file.write(f"population_size: {args['population_size']}\n")
+            log_file.write(f"\n===============\n")
+            log_file.close()
+
+            # init discrete optimization problem
+            abcd_problem = ACO_ABCD(orders=[i for i in range(100)])
+
+            # run the optimizer
+            ac = inspyred.swarm.ACS(random=rng, components=abcd_problem.components)
+            ac.observer = [ea_observer]
+            ac.terminator = abcd_problem.terminator
+            plot_data = [[], [], [], [], [], []]                                    # fitness trend to plot
+            plot_data[0] = []                                                       # generation number
+            plot_data[1] = []                                                       # evaluation number
+            plot_data[2] = []                                                       # average fitenss
+            plot_data[3] = []                                                       # median fitness
+            plot_data[4] = []                                                       # best fitness
+            plot_data[5] = []                                                       # worst fitness
+            start_time = time.time()
+            final_pop = ac.evolve(  generator=abcd_problem.constructor,             # the function to be used to generate candidate solutions
+                                    evaluator=abcd_problem.evaluator,               # the function to be used to evaluate candidate solutions
+                                    pop_size=args["population_size"],               # the number of Individuals in the population 
+                                    max_generations=args["max_generations"],        # maximum generations
+                                    maximize=abcd_problem.maximize,                 # boolean value stating use of maximization
+                                    bounder=abcd_problem.bounder,                   # a function used to bound candidate solutions 
+                                    fitness_function=simulation,                    # fitness_function
+                                    history_y=[],                                   # keep track of individual fitness
+                                    plot_data = plot_data,                          # data[0] generation number ; data[1] average fitenss ; data[2] median fitness ; data[3] best fitness ; data[4] worst fitness
+                                    output_directory = output_folder_run_path       # output directory
+                                )
+            execution_time = time.time()-start_time
+            # store execution time of the run
+            csv_execution_time_file = open(csv_execution_time_file_path, mode='a', newline='')
+            csv_execution_time_writer = csv.writer(csv_execution_time_file)
+            csv_execution_time_writer.writerow([r, execution_time])
+            csv_execution_time_file.close()
+            log_file = open(f"{output_folder_run_path}/log.txt", 'a')
+            log_file.write(f"total time: {execution_time}\n")
+            log_file.close()
+            print(f"total time: {time.time()-start_time}")
+            best_ACS = max(ac.archive)
+            print(f"best_ACS={best_ACS}")
+        
+        # close model
+        abcd_model.close()
         """
         indices = []
         for order in best_ACS.candidate:
