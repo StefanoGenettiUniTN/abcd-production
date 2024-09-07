@@ -31,7 +31,7 @@ if __name__ == '__main__':
         csv_file_path = args["input_csv"]
         df = pd.read_csv(csv_file_path)
         plt.figure(figsize=(10, 6))
-        plt.plot(range(len(df["y"])), df["y"].cummin(), marker='o', linestyle='-', linewidth=1, markersize=4, label='revenue')
+        plt.plot(range(len(df["y"])), df["y"].cummax(), marker='o', linestyle='-', linewidth=1, markersize=4, label='revenue')
         plt.xlabel('Trial')
         plt.ylabel('Revenue')
         plt.title('Fitness Trend')
