@@ -5,12 +5,16 @@ from gymnasium import spaces
 from ray.tune.registry import register_env
 from ray.rllib.algorithms import ppo
 import gymnasium as gym
+import datetime
 import matplotlib.pyplot as plt
 import csv
 import argparse
 import numpy as np
 import pandas as pd
 import ray
+import os
+import time
+import random
 
 class ABCDEnv(gym.Env):
     metadata = {'render.modes': ['human']}
@@ -113,7 +117,10 @@ def read_arguments():
     parser = argparse.ArgumentParser(description="ABCD production optimizer.")
     
     parser.add_argument("--input_csv", type=str, help="File path of the CSV where the optimization output has been stored.")
-    parser.add_argument("--n_trials", type=int, default=100, help="Number of optimization trials.")
+    parser.add_argument("--random_seed", type=int, default=42, help="Seed to initialize the pseudo-random number generation.")
+    parser.add_argument("--out_dir", type=str, help="Output folder.")
+    parser.add_argument('--no_runs', type=int, default=1, help='Number of runs.')
+    parser.add_argument('--no_evaluations', type=int, default=5000, help='Number of evalutations.')
 
     args = parser.parse_args()
     args = vars(args)
@@ -122,31 +129,57 @@ def read_arguments():
 
 if __name__ == '__main__':
     args = read_arguments()
+    rng = random.Random(args["random_seed"])
+    random.seed(args["random_seed"])
+    np.random.seed(args["random_seed"])
 
     # history of evaluations
     history_x:List[List[int]] = []
     history_y:List[int] = []
 
     if args["input_csv"]:
+        # history of evaluations
+        history_x:List[List[int]] = []
+        history_y:List[int] = []
+        history_evaluation:List[int] = []
+
         csv_file_path = args["input_csv"]
         csv_file = open(csv_file_path, mode='r', newline='')
         csv_reader = csv.reader(csv_file)
         next(csv_reader)    # skip the header
+        current_best_y = -1*float('inf')   # track the best y value encountered so far
         for row in csv_reader:
             x = literal_eval(row[0])  # convert the string representation of list back to a list
-            y = int(row[1])           # convert the string representation of integer back to an integer
+            eval = int(row[1])        # convert the string representation of integer back to an integer 
+            y = int(float(row[2]))    # convert the string representation of integer back to an integer
             history_x.append(x)
-            history_y.append(y)
+            history_evaluation.append(eval)
+            current_best_y = max(y, current_best_y)
+            history_y.append(current_best_y)
 
         # plot fitness trent
         plt.figure(figsize=(10, 6))
-        plt.plot(range(len(history_y)), history_y, marker='o', linestyle='-', color='b')
+        plt.plot(history_evaluation, history_y, marker='o', linestyle='-', color='b')
         plt.xlabel('Evaluation')
         plt.ylabel('Revenue')
         plt.title('Fitness Trend')
         plt.grid(True)
-        plt.show()
+        #plt.show()
+        plt.savefig(f"{args['out_dir']}/rl.pdf")
+        plt.savefig(f"{args['out_dir']}/rl.png")
     else:
+        # create directory for saving results
+        current_datetime = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_folder_path = f"{args['out_dir']}/{current_datetime}"
+        os.makedirs(output_folder_path)
+
+        # execution time csv file
+        csv_execution_time_file_path = f"{output_folder_path}/exec_rl.csv"
+        csv_execution_time_file = open(csv_execution_time_file_path, mode='w', newline='')
+        csv_execution_time_writer = csv.writer(csv_execution_time_file)
+        csv_execution_time_writer.writerow(["run", "time"])
+        csv_execution_time_file.close()
+
         # random action sampling
         """
         env = ABCDEnv()
@@ -164,42 +197,75 @@ if __name__ == '__main__':
                     observation, info = env.reset()
         """
 
-        # PPO training
         # register environment
         def env_creator(env_config):
             return ABCDEnv(num_orders=env_config.get("num_orders"))
-        register_env("ABCDEnv-v0", env_creator)
 
         # checkpoint directory
         checkpoint_dir = "rl-checkpoint"
 
-        # ray initialization
-        context = ray.init()
-        print(f"DASHBOARD: {context}")
-        config = {
-            "env": "ABCDEnv-v0",
-            "env_config": {
-                "num_orders": 100
-            },
-            "framework": "torch",
-            "num_workers": 1,
-            "num_envs_per_worker": 1
-        }
-        algo = ppo.PPO(config=config)
-        for i in range(500):
-            result = algo.train()
-            history_x.append([1,1,1,1,1])
-            history_y.append(result['episode_reward_max'])
-            print(f"Iteration {i}:\nreward_min = {result['episode_reward_min']}\nreward_mean = {result['episode_reward_mean']}\nreward_max = {result['episode_reward_max']}\nlen_mean = {result['episode_len_mean']}")
-        ray.shutdown()
+        for r in range(args["no_runs"]):
+            # history of evaluations
+            history_x:List[List[int]] = []
+            history_y:List[int] = []
+            history_evaluation:List[int] = []
 
-        # store fitness trend history in csv output file
-        csv_file_path = "history_rl.csv"
-        csv_file = open(csv_file_path, mode='w', newline='')
-        csv_writer = csv.writer(csv_file)
-        csv_writer.writerow(["x", "y"])
-        for x, y in zip(history_x, history_y):
-            csv_writer.writerow([str(x), y])
-        csv_file.close()
-        print(f"Data successfully written to history.csv")
+            # create directory for saving results of the run
+            output_folder_run_path = output_folder_path+"/"+str(r+1)
+            os.makedirs(output_folder_run_path)
+
+            # write a txt log file with algorithm configuration and other execution details
+            log_file = open(f"{output_folder_run_path}/log.txt", 'w')
+            log_file.write(f"algorithm: reinforcement learning\n")
+            log_file.write(f"current date and time: {datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}\n")
+            log_file.write(f"no_evaluations: {args['no_evaluations']}\n")
+            log_file.write(f"no_runs: {args['no_runs']}\n")
+            log_file.write(f"\n===============\n")
+            log_file.close()
+
+            # environment registration
+            register_env("ABCDEnv-v0", env_creator)
+
+            # ray initialization
+            context = ray.init()
+            print(f"DASHBOARD: {context}")
+            config = {
+                "env": "ABCDEnv-v0",
+                "env_config": {
+                    "num_orders": 100
+                },
+                "framework": "torch",
+                "num_workers": 1,
+                "num_envs_per_worker": 1
+            }
+            algo = ppo.PPO(config=config)
+            evaluations = 0
+            i=0
+            start_time = time.time()
+            while evaluations < args["no_evaluations"]:
+                result = algo.train()
+                print(f"Iteration {i}:\nreward_min = {result['env_runners']['episode_reward_min']}\nreward_mean = {result['env_runners']['episode_reward_mean']}\nreward_max = {result['env_runners']['episode_reward_max']}\nlen_mean = {result['env_runners']['episode_len_mean']}")
+                evaluations += result['env_runners']["num_episodes"]
+                i+=1
+                history_x.append([1,1,1,1,1])
+                history_evaluation.append(evaluations)
+                history_y.append(result['env_runners']['episode_reward_max'])
+            execution_time = time.time()-start_time
+            # store execution time of the run
+            csv_execution_time_file = open(csv_execution_time_file_path, mode='a', newline='')
+            csv_execution_time_writer = csv.writer(csv_execution_time_file)
+            csv_execution_time_writer.writerow([r, execution_time])
+            csv_execution_time_file.close()
+
+            # store fitness trend history in csv output file
+            csv_file_path = f"{output_folder_run_path}/history_rl.csv"
+            csv_file = open(csv_file_path, mode='w', newline='')
+            csv_writer = csv.writer(csv_file)
+            csv_writer.writerow(["x", "eval", "y"])
+            for x, eval, y in zip(history_x, history_evaluation, history_y):
+                csv_writer.writerow([str(x), eval, y])
+            csv_file.close()
+            print(f"Data successfully written to history_rl.csv")
+
+            ray.shutdown()
 
