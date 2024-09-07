@@ -10,10 +10,11 @@ def ea_observer(population, num_generations, num_evaluations, args):
     # store data of the plot fitness trend
     data = args["plot_data"]
     data[0].append(num_generations)
-    data[1].append(statistics.mean(args["history_y"]))
-    data[2].append(statistics.median(args["history_y"]))
-    data[3].append(max(args["history_y"]))
-    data[4].append(min(args["history_y"]))
+    data[1].append(num_evaluations)
+    data[2].append(statistics.mean(args["history_y"]))
+    data[3].append(statistics.median(args["history_y"]))
+    data[4].append(max(args["history_y"]))
+    data[5].append(min(args["history_y"]))
 
     # reset history_y for the next generation
     args["history_y"] = [] 
