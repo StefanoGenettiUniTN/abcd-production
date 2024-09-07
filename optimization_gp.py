@@ -1,5 +1,6 @@
 from typing import List, Dict, Tuple, Set
 from alpypeopt import AnyLogicModel
+from datetime import datetime
 import matplotlib.pyplot as plt
 import pandas as pd
 import argparse
@@ -9,6 +10,9 @@ import operator
 import json
 import sys
 import inspect
+import time
+import os
+import csv
 
 from deap import algorithms
 from deap import base
@@ -31,6 +35,9 @@ def read_arguments():
     parser.add_argument("--random_seed", type=int, default=42, help="Seed to initialize the pseudo-random number generation.")
     parser.add_argument("--input_csv", type=str, help="File path of the CSV where the optimization output has been stored.")
     
+    parser.add_argument("--out_dir", type=str, help="Output folder.")
+    parser.add_argument('--no_runs', type=int, default=1, help='Number of runs.')
+
     parser.add_argument('--population_size', type=int, default=100, help='population size for GP.')
     parser.add_argument('--max_generations', type=int, default=50, help='number of generations for GP.')
     parser.add_argument('--mutation_pb', type=float, default=0.2, help='mutation probability for GP.')
@@ -61,8 +68,22 @@ if __name__ == '__main__':
         plt.title('Fitness Trend')
         plt.legend()
         plt.grid(True)
-        plt.show()
+        #plt.show()
+        plt.savefig(f"{args['out_dir']}/gp.pdf")
+        plt.savefig(f"{args['out_dir']}/gp.png")
     else:
+        # create directory for saving results
+        current_datetime = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_folder_path = f"{args['out_dir']}/{current_datetime}"
+        os.makedirs(output_folder_path)
+
+        # execution time csv file
+        csv_execution_time_file_path = f"{output_folder_path}/exec_gp.csv"
+        csv_execution_time_file = open(csv_execution_time_file_path, mode='w', newline='')
+        csv_execution_time_writer = csv.writer(csv_execution_time_file)
+        csv_execution_time_writer.writerow(["run", "time"])
+        csv_execution_time_file.close()
+
         abcd_model = AnyLogicModel(
             env_config={
                 'run_exported_model': False
@@ -194,47 +215,79 @@ if __name__ == '__main__':
         mstats.register("min", np.min)
         mstats.register("max", np.max)
 
-        # run optimization
-        final_pop,logbook=algorithms.eaSimple(  pop,
-                                                toolbox,
-                                                args["crossover_pb"],
-                                                args["mutation_pb"],
-                                                args["max_generations"],
-                                                stats=mstats,
-                                                halloffame=hof,
-                                                verbose=True)
+        for r in range(args["no_runs"]):
+            # create directory for saving results of the run
+            output_folder_run_path = output_folder_path+"/"+str(r+1)
+            os.makedirs(output_folder_run_path)
+
+            # write a txt log file with algorithm configuration and other execution details
+            log_file = open(f"{output_folder_run_path}/log.txt", 'w')
+            log_file.write(f"algorithm: genetic programming\n")
+            log_file.write(f"current date and time: {datetime.now().strftime('%Y%m%d_%H%M%S')}\n")
+            log_file.write(f"no_runs: {args['no_runs']}\n")
+            log_file.write(f"population_size: {args['population_size']}\n")
+            log_file.write(f"max_generations: {args['max_generations']}\n")
+            log_file.write(f"mutation_pb: {args['mutation_pb']}\n")
+            log_file.write(f"crossover_pb: {args['crossover_pb']}\n")
+            log_file.write(f"trnmt_size: {args['trnmt_size']}\n")
+            log_file.write(f"hof_size: {args['hof_size']}\n")
+            log_file.write(f"output_tree: {args['output_tree']}\n")
+            log_file.write(f"\n===============\n")
+            # run optimization
+            start_time = time.time()
+            final_pop,logbook=algorithms.eaSimple(  pop,
+                                                    toolbox,
+                                                    args["crossover_pb"],
+                                                    args["mutation_pb"],
+                                                    args["max_generations"],
+                                                    stats=mstats,
+                                                    halloffame=hof,
+                                                    verbose=True)
+            execution_time = time.time()-start_time
+            # store execution time of the run
+            csv_execution_time_file = open(csv_execution_time_file_path, mode='a', newline='')
+            csv_execution_time_writer = csv.writer(csv_execution_time_file)
+            csv_execution_time_writer.writerow([r, execution_time])
+            csv_execution_time_file.close()
+            
+            # plot GP tree
+            nodes, edges, labels = gp.graph(hof[0])
+            #print(f"nodes: {nodes}")
+            #print(f"edges: {edges}")
+            #print(f"labels: {labels}")
+            save_tree(nodes=nodes, edges=edges, labels=labels, filename=f"{output_folder_run_path}/{args['output_tree']}")
+
+            # plot fitness trends
+            # TODO: vedere come si aggiunge chapter statistic per la dimensione dell'albero
+            plt_generation = logbook.chapters["fitness"].select("gen")
+            plt_fit_min = logbook.chapters["fitness"].select("min")
+            plt_fit_max = logbook.chapters["fitness"].select("max")
+            plt_fit_avg = logbook.chapters["fitness"].select("avg")
+            plt.figure(figsize=(10, 6))
+            plt.plot(plt_generation, plt_fit_avg, marker='o', linestyle='-', linewidth=1, markersize=4, label='Average Fitness')
+            plt.plot(plt_generation, plt_fit_max, marker='o', linestyle='-', linewidth=1, markersize=4, label='Best Fitness')
+            plt.plot(plt_generation, plt_fit_min, marker='o', linestyle='-', linewidth=1, markersize=4, label='Worst Fitness')
+            plt.xlabel('Generation')
+            plt.ylabel('Revenue')
+            plt.title('Fitness Trend')
+            plt.legend()
+            plt.grid(True)
+            #plt.show()
+            plt.savefig(f"{output_folder_run_path}/gp.pdf")
+            plt.savefig(f"{output_folder_run_path}/gp.png")
+
+            # best individual
+            print("Best individual GP is %s, %s" % (hof[0], hof[0].fitness.values))
+            log_file.write("Best individual GP is %s, %s\n" % (hof[0], hof[0].fitness.values))
+
+            # store result csv
+            df = pd.DataFrame()
+            df["generation"] = plt_generation
+            df["eval"] = df["generation"] * args["population_size"]
+            df["average_fitness"] = plt_fit_avg
+            df["best_fitness"] = plt_fit_max
+            df["worst_fitness"] = plt_fit_min
+            df.to_csv(f"{output_folder_run_path}/history_gp.csv", sep=",", index=False)
+            log_file.close()
         
-        # plot GP tree
-        nodes, edges, labels = gp.graph(hof[0])
-        print(f"nodes: {nodes}")
-        print(f"edges: {edges}")
-        print(f"labels: {labels}")
-        save_tree(nodes=nodes, edges=edges, labels=labels, filename=args["output_tree"])
-
-        # plot fitness trends
-        # TODO: vedere come si aggiunge chapter statistic per la dimensione dell'albero
-        plt_generation = logbook.chapters["fitness"].select("gen")
-        plt_fit_min = logbook.chapters["fitness"].select("min")
-        plt_fit_max = logbook.chapters["fitness"].select("max")
-        plt_fit_avg = logbook.chapters["fitness"].select("avg")
-        plt.figure(figsize=(10, 6))
-        plt.plot(plt_generation, plt_fit_avg, marker='o', linestyle='-', linewidth=1, markersize=4, label='Average Fitness')
-        plt.plot(plt_generation, plt_fit_max, marker='o', linestyle='-', linewidth=1, markersize=4, label='Best Fitness')
-        plt.plot(plt_generation, plt_fit_min, marker='o', linestyle='-', linewidth=1, markersize=4, label='Worst Fitness')
-        plt.xlabel('Generation')
-        plt.ylabel('Revenue')
-        plt.title('Fitness Trend')
-        plt.legend()
-        plt.grid(True)
-        plt.show()
-
-        # best individual
-        print("Best individual GP is %s, %s" % (hof[0], hof[0].fitness.values))
-
-        # store result csv
-        df = pd.DataFrame()
-        df["generation"] = plt_generation
-        df["average_fitness"] = plt_fit_avg
-        df["best_fitness"] = plt_fit_max
-        df["worst_fitness"] = plt_fit_min
-        df.to_csv("history_gp.csv", sep=",", index=False)
+        abcd_model.close()
