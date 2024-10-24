@@ -139,9 +139,9 @@ if __name__ == '__main__':
             return out1 if condition else out2
         def integer(num):
             return num
-        pset.addPrimitive(operator.and_, [Bool, Bool], Bool)
-        pset.addPrimitive(operator.or_, [Bool, Bool], Bool)
-        pset.addPrimitive(operator.not_, [Bool], Bool)
+        #pset.addPrimitive(operator.and_, [Bool, Bool], Bool)
+        #pset.addPrimitive(operator.or_, [Bool, Bool], Bool)
+        #pset.addPrimitive(operator.not_, [Bool], Bool)
         pset.addPrimitive(operator.lt, [int, int], Bool)
         pset.addPrimitive(operator.gt, [int, int], Bool)
         pset.addPrimitive(if_then_else, [Bool, str, str], str)
@@ -202,19 +202,6 @@ if __name__ == '__main__':
         random.seed(args["random_seed"])
         np.random.seed(args["random_seed"])
 
-        # population size and hall of fame size
-        pop = toolbox.population(n=args["population_size"])
-        hof = tools.HallOfFame(args["hof_size"])
-
-        # statistics
-        stats_fit = tools.Statistics(lambda ind: ind.fitness.values)
-        stats_size = tools.Statistics(len)
-        mstats = tools.MultiStatistics(fitness=stats_fit, size=stats_size)
-        mstats.register("avg", np.mean)
-        mstats.register("std", np.std)
-        mstats.register("min", np.min)
-        mstats.register("max", np.max)
-
         for r in range(args["no_runs"]):
             # create directory for saving results of the run
             output_folder_run_path = output_folder_path+"/"+str(r+1)
@@ -233,6 +220,20 @@ if __name__ == '__main__':
             log_file.write(f"hof_size: {args['hof_size']}\n")
             log_file.write(f"output_tree: {args['output_tree']}\n")
             log_file.write(f"\n===============\n")
+
+            # population size and hall of fame size
+            pop = toolbox.population(n=args["population_size"])
+            hof = tools.HallOfFame(args["hof_size"])
+
+            # statistics
+            stats_fit = tools.Statistics(lambda ind: ind.fitness.values)
+            stats_size = tools.Statistics(len)
+            mstats = tools.MultiStatistics(fitness=stats_fit, size=stats_size)
+            mstats.register("avg", np.mean)
+            mstats.register("std", np.std)
+            mstats.register("min", np.min)
+            mstats.register("max", np.max)
+
             # run optimization
             start_time = time.time()
             final_pop,logbook=algorithms.eaSimple(  pop,
